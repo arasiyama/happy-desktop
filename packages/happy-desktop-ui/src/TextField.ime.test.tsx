@@ -3,7 +3,6 @@ import { createPortal, flushSync } from "react-dom";
 import { expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import "./styles.css";
-import { HappyAgentCreateTaskPage } from "./HappyAgentCreateTaskPage";
 import { HappyAgentProjectCloneDialog } from "./HappyAgentProjectCloneDialog";
 import { HappyAgentProjectSettingsDialog } from "./HappyAgentProjectSettingsDialog";
 import { SearchField } from "./TitleBar";
@@ -50,20 +49,13 @@ function ime(input: HTMLElement, sequence: Sequence, init: KeyboardEventInit = {
     });
 }
 
-for (const surface of ["task", "clone", "project-name", "search"] as const) {
+// Current task creation uses Composer, covered by Composer.ime.test.tsx.
+for (const surface of ["clone", "project-name", "search"] as const) {
     it.each(sequences)(`${surface} does not confirm an IME candidate (%s)`, async (sequence) => {
         const submit = vi.fn();
         const close = vi.fn();
         function Harness() {
             const [value, setValue] = useState("中文草稿");
-            if (surface === "task")
-                return (
-                    <HappyAgentCreateTaskPage
-                        name={value}
-                        onNameChange={setValue}
-                        onSubmit={submit}
-                    />
-                );
             if (surface === "clone")
                 return (
                     <HappyAgentProjectCloneDialog
