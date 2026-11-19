@@ -45,6 +45,7 @@ import { EmojiPicker, type EmojiItem } from "./EmojiPicker";
 import { Icon, type IconName } from "./Icon";
 import { commandModifier, commandModifierHeld } from "./keyboardShortcut";
 import { focusUnlessWritingElsewhere, useFocusOnType } from "./useFocusOnType";
+import { imeCompositionHandlers, imeKeyboardEvent } from "./imeComposition";
 /* ---- ContextChips ----------------------------------------------------- */
 export type ContextKind = "file" | "run";
 export type ContextItem = {
@@ -1061,6 +1062,8 @@ export function Composer(props: ComposerProps) {
         });
     };
     const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+        // Candidate navigation belongs to the IME before any picker/shortcut.
+        if (imeKeyboardEvent(event.nativeEvent)) return;
         const historyDirection = historyChordOf(event.nativeEvent);
         if (historyDirection) {
             // Prevented here, the browser runs neither its own Undo nor the
@@ -1069,13 +1072,7 @@ export function Composer(props: ComposerProps) {
             historyStep(historyDirection);
             return;
         }
-        if (
-            event.key === "Tab" &&
-            event.shiftKey &&
-            audienceEnabled() &&
-            !busy &&
-            !event.nativeEvent.isComposing
-        ) {
+        if (event.key === "Tab" && event.shiftKey && audienceEnabled() && !busy) {
             event.preventDefault();
             audienceToggle();
             return;
@@ -1084,7 +1081,6 @@ export function Composer(props: ComposerProps) {
             (event.key === "Backspace" || event.key === "Delete") &&
             // Cmd+Backspace takes the whole line, mentions and all.
             !event.metaKey &&
-            !event.nativeEvent.isComposing &&
             draft.tags.length > 0 &&
             tagDelete(event.currentTarget, event.key === "Backspace")
         ) {
@@ -1161,12 +1157,7 @@ export function Composer(props: ComposerProps) {
          * draft with something in it stops the run just the same, even though
          * the send control has taken the circle back from stop.
          */
-        if (
-            event.key === "Escape" &&
-            props.running &&
-            props.onStop &&
-            !event.nativeEvent.isComposing
-        ) {
+        if (event.key === "Escape" && props.running && props.onStop) {
             event.preventDefault();
             props.onStop();
             return;
@@ -1352,6 +1343,7 @@ export function Composer(props: ComposerProps) {
             : draft.text.slice(0, mentionLayerBreak === -1 ? draft.text.length : mentionLayerBreak);
     const draftTextarea = (
         <textarea
+            {...imeCompositionHandlers}
             className="happy-composer__textarea"
             data-claims-typing={props.focusOnType === true && !busy ? "" : undefined}
             data-happy-desktop-ui="composer-textarea"

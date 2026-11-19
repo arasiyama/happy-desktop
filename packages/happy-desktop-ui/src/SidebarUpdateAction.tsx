@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
+import { imeKeyboardEvent } from "./imeComposition";
 import { Ionicon } from "./vectorIcons/VectorIcon";
 
 /** One kind of bullet across every release in range, newest release first. */
@@ -149,7 +150,7 @@ export function SidebarUpdateAction(props: SidebarUpdateActionProps) {
             }
         };
         const closeOnEscape = (event: KeyboardEvent) => {
-            if (event.key === "Escape") setOpen(false);
+            if (event.key === "Escape" && !imeKeyboardEvent(event)) setOpen(false);
         };
         document.addEventListener("pointerdown", closeOnOutsidePointer, true);
         document.addEventListener("keydown", closeOnEscape, true);

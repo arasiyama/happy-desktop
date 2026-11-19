@@ -19,6 +19,7 @@ import { Avatar, type AvatarTint, type ToneName } from "./Avatar";
 import { ChangeStats } from "./ChangeStats";
 import { fixedBlockMeasure } from "./fixedBlock";
 import { haptic } from "./haptics";
+import { imeCompositionHandlers, imeKeyboardEvent } from "./imeComposition";
 import { CountBadge, KeyCap } from "./Badge";
 import { Button } from "./Button";
 import { happyWordmarkLightUrl } from "./assets";
@@ -2168,7 +2169,7 @@ function SidebarRow({
                     onBlur={(event) => renameFinish(event.currentTarget.textContent ?? "")}
                     onKeyDown={(event) => {
                         event.stopPropagation();
-                        if (event.nativeEvent.isComposing) return;
+                        if (imeKeyboardEvent(event.nativeEvent)) return;
                         if (event.key !== "Enter" && event.key !== "Escape") return;
                         event.preventDefault();
                         if (event.repeat) return;
@@ -2296,7 +2297,7 @@ function SidebarRow({
                     !event.altKey &&
                     !event.shiftKey &&
                     !event.repeat &&
-                    !event.nativeEvent.isComposing &&
+                    !imeKeyboardEvent(event.nativeEvent) &&
                     props.onRenameRequest?.()
                 ) {
                     event.preventDefault();
@@ -2520,7 +2521,7 @@ function SidebarRow({
                                 props.rename
                                     ? (event) => {
                                           event.stopPropagation();
-                                          if (event.nativeEvent.isComposing) return;
+                                          if (imeKeyboardEvent(event.nativeEvent)) return;
                                           if (event.key === "Enter" || event.key === "Escape") {
                                               event.preventDefault();
                                               if (event.repeat) return;
@@ -2890,7 +2891,7 @@ export function Sidebar(props: SidebarProps) {
         ].filter((node) => !node.hasAttribute("data-renaming"));
     const keyboardWalk = (event: ReactKeyboardEvent<HTMLElement>): void => {
         if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-        if (event.nativeEvent.isComposing) return;
+        if (imeKeyboardEvent(event.nativeEvent)) return;
         const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
         if (!keys.includes(event.key)) return;
         const items = walkable(event.currentTarget);
@@ -3052,7 +3053,7 @@ export function Sidebar(props: SidebarProps) {
             setItemMenu(undefined);
         };
         const closeOnEscape = (event: KeyboardEvent) => {
-            if (event.key !== "Escape") return;
+            if (event.key !== "Escape" || imeKeyboardEvent(event)) return;
             setItemMenu(undefined);
             if (createMenu) createRowNode.current?.focus();
         };
@@ -4546,6 +4547,7 @@ export function Sidebar(props: SidebarProps) {
     const sidebar = (
         <nav
             {...rest}
+            {...imeCompositionHandlers}
             className={["happy-sidebar", local.className].filter(Boolean).join(" ")}
             ref={interactionRef}
             data-back={local.onBack ? "" : undefined}
