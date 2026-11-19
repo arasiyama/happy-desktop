@@ -1,0 +1,135 @@
+name: Happy IME macOS arm64 artifact
+
+on:
+    workflow_dispatch:
+        inputs:
+            reviewed_commit:
+                description: Full reviewed commit SHA on fork/ime-macos-arm64
+                required: true
+                type: string
+
+permissions:
+    contents: read
+
+jobs:
+    artifact:
+        if: github.repository == 'arasiyama/happy-desktop' && github.ref == 'refs/heads/fork/ime-macos-arm64'
+        runs-on: macos-15
+        timeout-minutes: 30
+        env:
+            CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - name: Verify the requested revision and runner
+              env:
+                  REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+              run: |
+                  test "$REVIEWED_COMMIT" = "$GITHUB_SHA"
+                  test "$(uname -m)" = arm64
+
+            - name: Check out reviewed source
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+            - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+              with:
+                  node-version: "24.22.3"
+                  package-manager-cache: false
+
+            - name: Install locked dependencies and build the standard renderer
+              run: |
+                  pnpm install --frozen-lockfile
+                  pnpm --dir packages/happy-desktop-ui typecheck
+                  pnpm --dir packages/happy-desktop-electron typecheck
+                  pnpm desktop:assets
+                  pnpm --dir packages/happy-desktop-electron build
+
+            - name: Stage production dependencies and package without Developer ID
+              run: |
+                  pnpm --config.inject-workspace-packages=true --config.node-linker=hoisted \
+                      --os darwin --cpu arm64 --filter happy-desktop-electron deploy --prod \
+                      packages/happy-desktop-electron/release/.ime-staging
+                  node --input-type=module <<'NODE'
+                  import { readFileSync, writeFileSync } from 'node:fs';
+                  import { createRequire } from 'node:module';
+                  import { join, resolve } from 'node:path';
+
+                  const desktop = resolve('packages/happy-desktop-electron');
+                  const staging = join(desktop, 'release', '.ime-staging');
+                  const stagedManifest = join(staging, 'package.json');
+                  const metadata = JSON.parse(readFileSync(stagedManifest, 'utf8'));
+                  const { build: ignoredBuild, devDependencies, ...production } = metadata;
+                  writeFileSync(stagedManifest, JSON.stringify({ ...production, name: 'happy-desktop-ime' }));
+
+                  const { build: base, devDependencies: tools } = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8'));
+                  const { publish: ignoredPublish, ...standard } = base;
+                  const { Arch, Platform, build } = createRequire(join(desktop, 'package.json'))('electron-builder');
+                  await build({
+                      projectDir: staging,
+                      targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
+                      publish: 'never',
+                      config: {
+                          ...standard,
+                          appId: 'io.github.arasiyama.happy-desktop-ime',
+                          productName: 'Happy IME',
+                          artifactName: 'Happy-IME-arm64.${ext}',
+                          beforeBuild: () => false,
+                          electronVersion: tools.electron.replace(/^\D+/u, ''),
+                          directories: {
+                              buildResources: join(desktop, 'build'),
+                              output: join(desktop, 'release', 'ime-artifact'),
+                          },
+                          extraResources: [{
+                              from: join(staging, 'node_modules'),
+                              to: 'node_modules',
+                              filter: ['**/*', '!.pnpm{,/**/*}', '!.modules.yaml', '!.pnpm-workspace-state-v1.json', '!.bin{,/**/*}'],
+                          }],
+                          mac: {
+                              ...standard.mac,
+                              icon: join(desktop, 'assets/app-icon/generated/app-icon.icns'),
+                              entitlements: join(desktop, 'build/entitlements.mac.plist'),
+                              entitlementsInherit: join(desktop, 'build/entitlements.mac.plist'),
+                              identity: '-', // Ad-hoc signature for Apple Silicon, no certificate or notarization.
+                              hardenedRuntime: false,
+                              notarize: false,
+                          },
+                      },
+                  });
+                  NODE
+
+            - name: Verify binary architecture, package contents and ad-hoc signature
+              run: |
+                  output=packages/happy-desktop-electron/release/ime-artifact
+                  app="$output/mac-arm64/Happy IME.app"
+                  resources="$app/Contents/Resources"
+                  test "$(lipo -archs "$app/Contents/MacOS/Happy IME")" = arm64
+                  test ! -e "$resources/app-update.yml"
+                  test -d "$resources/node_modules/@slopus/happy-agent-client"
+                  test -d "$resources/node_modules/electron-updater"
+                  node --input-type=module - "$resources/app.asar" <<'NODE'
+                  import { packagedFilesVerify, packagedMainModulesVerify } from './scripts/verify-packaged-main-modules.mjs';
+
+                  const archive = process.argv[2];
+                  packagedMainModulesVerify(archive, ['dist/main.js', 'dist/happyAgentRendererUtility.js']);
+                  packagedFilesVerify(archive, ['dist/renderer/index.html', 'dist/preload.cjs', 'dist/artifact-code/code.js']);
+                  NODE
+                  codesign --verify --deep --strict "$app"
+                  codesign --display --verbose=4 "$app" 2>&1 | grep -Fx 'Signature=adhoc'
+                  hdiutil verify "$output/Happy-IME-arm64.dmg"
+                  cd "$output"
+                  shasum -a 256 Happy-IME-arm64.dmg > Happy-IME-arm64.dmg.sha256
+
+            - name: Upload only the disk image and checksum
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: happy-ime-macos-arm64-${{ github.sha }}
+                  path: |
+                      packages/happy-desktop-electron/release/ime-artifact/Happy-IME-arm64.dmg
+                      packages/happy-desktop-electron/release/ime-artifact/Happy-IME-arm64.dmg.sha256
+                  if-no-files-found: error
+                  compression-level: 0
+                  retention-days: 7
